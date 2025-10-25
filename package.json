@@ -1,0 +1,18 @@
+{
+  "dependencies": {
+    "express": "^5.1.0",
+    "mongodb": "^6.20.0",
+    "nodemon": "^3.1.10"
+  },
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "project's backend",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "nodemon app.js",
+    "test": "echo coucou"
+  },
+  "author": "Robin Fasseler",
+  "license": "ISC"
+}
