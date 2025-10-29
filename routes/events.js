@@ -12,6 +12,7 @@ router.get("/", async (req, res) => {
     res.send(results).status(200);
 });
 
+
 router.get("/", async (req, res) => {
     req.params
     let results = await db.collection('events').updateOne({},
