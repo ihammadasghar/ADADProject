@@ -4,224 +4,204 @@ import { ObjectId } from "mongodb";
 
 const router = express.Router();
 
-// ===== EVENTS ENDPOINTS =====
+// Helpers
+function parsePageLimit(req) {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+    return { page, limit, skip };
+}
 
-// Endpoint 1: GET /events - Lista de eventos com paginação
-router.get("/", async (req, res) => {
+function isValidObjectId(id) {
+    if (!id) return false;
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const skip = (page - 1) * limit;
-
-        let results = await db.collection('events').find({})
-            .skip(skip)
-            .limit(limit)
-            .toArray();
-
-        const total = await db.collection('events').countDocuments();
-        
-        res.status(200).send({
-            data: results,
-            pagination: {
-                page,
-                limit,
-                total,
-                totalPages: Math.ceil(total / limit)
-            }
-        });
-    } catch (error) {
-        console.error("Error fetching events:", error);
-        res.status(500).send({ error: "Internal Server Error" });
+        return ObjectId.isValid(id) && String(new ObjectId(id)) === id;
+    } catch (e) {
+        return false;
     }
-});
+}
 
-// Endpoint 5: GET /events/:id - Pesquisar evento pelo _id com average score
-router.get("/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        if (!ObjectId.isValid(id)) {
-            res.status(400).send({ error: "Invalid event ID format" });
-            return;
-        }
+async function getEventStats(eventId) {
+    const pipeline = [
+        { $unwind: "$events" },
+        { $match: { "events.eventId": new ObjectId(eventId) } },
+        { $group: { _id: "$events.eventId", avg: { $avg: "$events.rating" }, count: { $sum: 1 } } }
+    ];
 
-        const event = await db.collection('events').findOne({
-            _id: new ObjectId(id)
-        });
+    const result = await db.collection("users").aggregate(pipeline).toArray();
+    if (result.length === 0) return { avg: null, count: 0 };
+    return { avg: result[0].avg, count: result[0].count };
+}
 
-        if (!event) {
-            res.status(404).send({ error: "Event not found" });
-            return;
-        }
-
-        // Calculate average score if reviews exist
-        let averageScore = 0;
-        if (event.reviews && event.reviews.length > 0) {
-            const totalScore = event.reviews.reduce((sum, review) => sum + review.rating, 0);
-            averageScore = totalScore / event.reviews.length;
-        }
-
-        res.status(200).send({
-            ...event,
-            averageScore: Math.round(averageScore * 100) / 100 // Round to 2 decimal places
-        });
-    } catch (error) {
-        console.error("Error fetching event:", error);
-        res.status(500).send({ error: "Internal Server Error" });
-    }
-});
-
-// Endpoint 11: GET /events/top/:limit - Lista de eventos com maior score
-router.get("/top/:limit", async (req, res) => {
-    try {
-        const limit = parseInt(req.params.limit) || 10;
-        
-        const events = await db.collection('events').find({}).toArray();
-        
-        // Calculate average score for each event and sort
-        const eventsWithScores = events.map(event => {
-            let averageScore = 0;
-            if (event.reviews && event.reviews.length > 0) {
-                const totalScore = event.reviews.reduce((sum, review) => sum + review.rating, 0);
-                averageScore = totalScore / event.reviews.length;
-            }
-            
-            return {
-                ...event,
-                averageScore: Math.round(averageScore * 100) / 100
-            };
-        });
-        
-        // Sort by average score descending and limit results
-        const topEvents = eventsWithScores
-            .filter(event => event.averageScore > 0) // Only events with reviews
-            .sort((a, b) => b.averageScore - a.averageScore)
-            .slice(0, limit);
-
-        res.status(200).send(topEvents);
-    } catch (error) {
-        console.error("Error fetching top events:", error);
-        res.status(500).send({ error: "Internal Server Error" });
-    }
-});
-
-// Endpoint 14: GET /events/:year - Lista de eventos avaliados no ano {year}
-router.get("/year/:year", async (req, res) => {
-    try {
-        const year = parseInt(req.params.year);
-        
-        if (isNaN(year)) {
-            res.status(400).send({ error: "Invalid year format" });
-            return;
-        }
-
-        const events = await db.collection('events').find({}).toArray();
-        
-        // Filter events that have reviews in the specified year
-        const eventsInYear = events.filter(event => {
-            if (!event.reviews) return false;
-            
-            return event.reviews.some(review => {
-                const reviewYear = new Date(review.date).getFullYear();
-                return reviewYear === year;
-            });
-        });
-
-        res.status(200).send(eventsInYear);
-    } catch (error) {
-        console.error("Error fetching events by year:", error);
-        res.status(500).send({ error: "Internal Server Error" });
-    }
-});
-
-// Endpoint 3: POST /events - Adicionar 1 ou vários eventos
+// 3 - create event (existing implementation kept, but accept body as well)
 router.post("/", async (req, res) => {
     try {
-        const events = req.body;
-        
-        // Check if it's a single event or multiple events
-        if (Array.isArray(events)) {
-            // Multiple events
-            if (events.length === 0) {
-                res.status(400).send({ error: "Empty events array" });
-                return;
-            }
-            
-            const result = await db.collection('events').insertMany(events);
-            res.status(201).send(result);
-        } else {
-            // Single event
-            const { changeDate, establishmentID, establishmentName, address, zipCode, county } = events;
-            
-            if (!changeDate || !establishmentID || !establishmentName || !address || !zipCode || !county) {
-                res.status(400).send({ error: "Missing required fields" });
-                return;
-            }
-            
-            const result = await db.collection('events').insertOne(events);
-            res.status(201).send(result);
+        // Support creating via body (preferred) or via query as before
+        const payload = Object.keys(req.body).length ? req.body : req.query;
+        const { changeDate, establishmentID, establishmentName, address, zipCode, county } = payload;
+
+        if (!changeDate || !establishmentID || !establishmentName || !address || !zipCode || !county) {
+            res.status(400).send({ error: "Missing required fields" });
+            return;
         }
+
+        const result = await db.collection('events').insertOne({
+            changeDate,
+            establishmentID,
+            establishmentName,
+            address,
+            zipCode,
+            county
+        });
+
+        res.status(201).send(result);
     } catch (error) {
-        console.error("Error creating event(s):", error);
+        console.error("Error processing request:", error);
         res.status(500).send({ error: "Internal Server Error" });
     }
 });
 
-// Endpoint 7: DELETE /events/:id - Remover evento pelo _id
+// 1 - GET /events (with pagination)
+router.get("/", async (req, res) => {
+    try {
+        const { page, limit, skip } = parsePageLimit(req);
+        const cursor = db.collection("events").find({}).skip(skip).limit(limit);
+        const items = await cursor.toArray();
+
+        const total = await db.collection("events").countDocuments();
+        res.send({ page, limit, total, items });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Internal Server Error" });
+    }
+});
+
+// 5 and 14 - GET /events/:idOrYear
+// If param is a valid ObjectId -> treat as id (endpoint 5). If param is a 4-digit year -> treat as year (endpoint 14).
+router.get("/:idOrYear", async (req, res) => {
+    try {
+        const p = req.params.idOrYear;
+        // If it's an ObjectId treat as event id
+        if (isValidObjectId(p)) {
+            const event = await db.collection("events").findOne({ _id: new ObjectId(p) });
+            if (!event) {
+                res.status(404).send({ error: "Event not found" });
+                return;
+            }
+
+            const stats = await getEventStats(p);
+            event.averageScore = stats.avg;
+            event.reviewsCount = stats.count;
+            res.send(event);
+            return;
+        }
+
+        // If year (simple check)
+        if (/^\d{4}$/.test(p)) {
+            const year = parseInt(p);
+            // find distinct eventIds that have reviews in the year
+            const pipeline = [
+                { $unwind: "$events" },
+                { $addFields: { year: { $year: { $toDate: "$events.ratedAt" } } } },
+                { $match: { year: year } },
+                { $group: { _id: "$events.eventId" } }
+            ];
+            const ids = await db.collection("users").aggregate(pipeline).toArray();
+            const eventIds = ids.map(d => d._id);
+            const events = await db.collection("events").find({ _id: { $in: eventIds } }).toArray();
+            res.send({ year, events });
+            return;
+        }
+
+        res.status(400).send({ error: "Parameter must be a valid ObjectId or a 4-digit year" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Internal Server Error" });
+    }
+});
+
+// 7 - DELETE /events/:id
 router.delete("/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        
-        if (!ObjectId.isValid(id)) {
-            res.status(400).send({ error: "Invalid event ID format" });
+        if (!isValidObjectId(id)) {
+            res.status(400).send({ error: "Invalid id" });
             return;
         }
-
-        const result = await db.collection('events').deleteOne({
-            _id: new ObjectId(id)
-        });
-
+        const result = await db.collection("events").deleteOne({ _id: new ObjectId(id) });
+        // remove references from users
+        await db.collection("users").updateMany({}, { $pull: { events: { eventId: new ObjectId(id) } } });
         if (result.deletedCount === 0) {
             res.status(404).send({ error: "Event not found" });
             return;
         }
-
-        res.status(200).send({ message: "Event deleted successfully" });
+        res.send({ deleted: true });
     } catch (error) {
-        console.error("Error deleting event:", error);
+        console.error(error);
         res.status(500).send({ error: "Internal Server Error" });
     }
 });
 
-// Endpoint 9: PUT /events/:id - Update evento
-router.put("/:id", async (req, res) => {
+// 9 - PUT /events/:id (update event)
+// TODO
+
+// 11 - GET /events/top/:limit
+router.get("/top/:limit", async (req, res) => {
     try {
-        const { id } = req.params;
-        const updateData = req.body;
-        
-        if (!ObjectId.isValid(id)) {
-            res.status(400).send({ error: "Invalid event ID format" });
-            return;
-        }
-
-        if (Object.keys(updateData).length === 0) {
-            res.status(400).send({ error: "No update data provided" });
-            return;
-        }
-
-        const result = await db.collection('events').updateOne(
-            { _id: new ObjectId(id) },
-            { $set: updateData }
-        );
-
-        if (result.matchedCount === 0) {
-            res.status(404).send({ error: "Event not found" });
-            return;
-        }
-
-        res.status(200).send({ message: "Event updated successfully" });
+        const limit = parseInt(req.params.limit) || 10;
+        const pipeline = [
+            { $unwind: "$events" },
+            { $group: { _id: "$events.eventId", avgScore: { $avg: "$events.rating" }, reviews: { $sum: 1 } } },
+            { $sort: { avgScore: -1 } },
+            { $limit: limit },
+            { $lookup: { from: "events", localField: "_id", foreignField: "_id", as: "event" } },
+            { $unwind: "$event" },
+            { $project: { event: 1, avgScore: 1, reviews: 1 } }
+        ];
+        const results = await db.collection("users").aggregate(pipeline).toArray();
+        res.send(results.map(r => ({ ...r.event, averageScore: r.avgScore, reviewsCount: r.reviews })));
     } catch (error) {
-        console.error("Error updating event:", error);
+        console.error(error);
+        res.status(500).send({ error: "Internal Server Error" });
+    }
+});
+
+// 12 - GET /events/ratings/:order  (order = asc|desc)
+router.get("/ratings/:order", async (req, res) => {
+    try {
+        const order = req.params.order === "asc" ? 1 : -1;
+        const pipeline = [
+            { $unwind: "$events" },
+            { $group: { _id: "$events.eventId", reviews: { $sum: 1 } } },
+            { $sort: { reviews: order } },
+            { $lookup: { from: "events", localField: "_id", foreignField: "_id", as: "event" } },
+            { $unwind: "$event" },
+            { $project: { event: 1, reviews: 1 } }
+        ];
+        const results = await db.collection("users").aggregate(pipeline).toArray();
+        res.send(results.map(r => ({ ...r.event, reviewsCount: r.reviews })));
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Internal Server Error" });
+    }
+});
+
+// 13 - GET /events/star  -> events with number of 5-star reviews (sorted desc)
+router.get("/star", async (req, res) => {
+    try {
+        const pipeline = [
+            { $unwind: "$events" },
+            { $match: { "events.rating": 5 } },
+            { $group: { _id: "$events.eventId", fiveStars: { $sum: 1 } } },
+            { $sort: { fiveStars: -1 } },
+            { $lookup: { from: "events", localField: "_id", foreignField: "_id", as: "event" } },
+            { $unwind: "$event" },
+            { $project: { event: 1, fiveStars: 1 } }
+        ];
+        const results = await db.collection("users").aggregate(pipeline).toArray();
+        res.send(results.map(r => ({ ...r.event, fiveStarsCount: r.fiveStars })));
+    } catch (error) {
+        console.error(error);
         res.status(500).send({ error: "Internal Server Error" });
     }
 });
