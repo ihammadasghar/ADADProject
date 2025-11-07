@@ -38,10 +38,13 @@ router.post("/", async (req, res) => {
     try {
         var toInserts = req.body;
         var index = 0;
+        if(Array.isArray(toInserts) === false){
+            toInserts = [toInserts];
+        }
 
         for(var event of toInserts){
             const { changeDate, establishmentID, establishmentName, address, zipCode, county } = event;
-            
+
             if (!changeDate || !establishmentID || !establishmentName || !address || !zipCode || !county) {
                 res.status(400).send({ error: "Missing required fields in event " + index });
                 return;

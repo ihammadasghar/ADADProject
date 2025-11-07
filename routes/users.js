@@ -65,7 +65,28 @@ router.post("/", async (req, res) => {
 });
 
 // 6 - GET /users/:id  (include top 3 events of the user)
-// TODO
+//TODO : change "movies" to "events"
+router.get("/:id", async (req, res) => {
+	try {
+		const id = req.params.id;
+		console.log("Fetching user with id:", id);
+
+		const { movies/*events*/, ...user } = await db.collection("users").findOne({ _id: Number(id) });
+		if (!user) {
+			res.status(404).send({ error: "User not found" });
+			return;
+		}
+
+		const sorted = movies/*events*/.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.movieid/*_id*/);
+		const bestRatedEvents = await db.collection("movies"/*"events"*/).find({ _id: { $in: sorted } }).toArray();
+	
+
+		res.status(200).send({ user, bestRatedEvents });
+	} catch (error) {
+		console.error(error);
+		res.status(500).send({ error: "Internal Server Error" });
+	}
+});
 
 
 // 8 - DELETE /users/:id
