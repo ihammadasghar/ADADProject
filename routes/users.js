@@ -71,14 +71,17 @@ router.get("/:id", async (req, res) => {
 		const id = req.params.id;
 		console.log("Fetching user with id:", id);
 
-		const { movies/*events*/, ...user } = await db.collection("users").findOne({ _id: Number(id) });
+		const { events, ...user } = await db.collection("users").findOne({ _id: Number(id) });
+		// const { events, ...user } = await db.collection("users").findOne({ _id: Number(id) });
 		if (!user) {
 			res.status(404).send({ error: "User not found" });
 			return;
 		}
 
-		const sorted = movies/*events*/.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.movieid/*_id*/);
-		const bestRatedEvents = await db.collection("movies"/*"events"*/).find({ _id: { $in: sorted } }).toArray();
+		const sorted = events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.movieid);
+		// const sorted = events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e._id);
+		const bestRatedEvents = await db.collection("movies").find({ _id: { $in: sorted } }).toArray();
+		// const bestRatedEvents = await db.collection("events").find({ _id: { $in: sorted } }).toArray();
 	
 
 		res.status(200).send({ user, bestRatedEvents });
@@ -142,6 +145,56 @@ router.put("/:id", async (req, res) => {
 });
 
 // 15 - POST /users/:id/review/:event_id  -> add a new review (or update existing) to an event by a user
-// TODO
+// TODO : change "movie" to "event"
+router.post("/:id/review/:event_id", async (req, res) => {
+	try {
+		const { id, event_id } = req.params;
+
+		/* if (!isValidObjectId(event_id)) {
+		 	return res.status(400).send({ error: "Invalid event id" });
+		}*/
+
+		const userId = Number(id);
+		const eventId = Number(event_id);
+		//const eventId = new ObjectId(event_id);
+
+		const { rating, ratedAt } = req.body;
+		const rate = Number(rating);
+		if (!Number.isFinite(rate) || rate < 0 || rate > 5) {
+			return res.status(400).send({ error: "Invalid rating. Must be a number between 0 and 5" });
+		}
+
+		const ratedAtValue = ratedAt ? new Date(ratedAt): new Date();
+		const ratedAtRawValue = ratedAt ? new Date(ratedAt).getTime() : new Date().getTime();
+		const eventExists = await db.collection("movies").find({ _id: eventId });
+		//const eventExists = await db.collection("events").findOne({ _id: eventId });
+		if (!eventExists) {
+			return res.status(404).send({ error: "Event not found" });
+		}
+
+		var result = await db.collection("users").updateOne(
+			{ _id: userId, "movies.movieid": eventId },
+			{ $set: { "movies.$.rating": rate, "movies.$.date": ratedAtValue, "movies.$.timestamp": ratedAtRawValue } }
+			/*{ _id: userId, "events.eventId": eventId },
+			{ $set: { "events.$.rating": rate, "events.$.date": ratedAtValue, "events.$.timestamp": ratedAtRawValue } }*/
+		);
+
+		if (result.matchedCount === 0) {
+			result = await db.collection("users").updateOne(
+				{ _id: userId },
+				{ $push: { movies: { movieid: eventId, rating: rate, timestamp: ratedAtRawValue, date: ratedAtValue } } }
+				/*{ $push: { events: { eventId: eventId, rating: rate, timestamp: ratedAtRawValue, date: ratedAtValue } } }*/
+			);
+			if (result.matchedCount === 0) {
+				return res.status(404).send({ error: "User not found" });
+			}
+		}
+
+		return res.status(201).send({ result });
+	} catch (error) {
+		console.error(error);
+		res.status(500).send({ error: "Internal Server Error" });
+	}
+});
 
 export default router;
