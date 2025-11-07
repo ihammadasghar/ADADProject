@@ -143,7 +143,25 @@ router.delete("/:id", async (req, res) => {
 });
 
 // 9 - PUT /events/:id (update event)
-// TODO
+router.put("/:id", async (req, res) => {
+    try {
+        if(!isValidObjectId(req.params.id)) {
+            res.status(400).send({ error: "Invalid id" });
+            return;
+        }
+
+        const result = await db.collection("events").updateOne({ _id: new ObjectId(req.params.id) }, { $set: req.body });
+        if (result.matchedCount === 0) {
+            res.status(404).send({ error: "Event not found" });
+            return;
+        }
+        
+        res.status(200).send({ result });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Internal Server Error" });
+    }
+});
 
 // 11 - GET /events/top/:limit
 router.get("/top/:limit", async (req, res) => {
