@@ -33,26 +33,23 @@ async function getEventStats(eventId) {
     return { avg: result[0].avg, count: result[0].count };
 }
 
-// 3 - create event (existing implementation kept, but accept body as well)
+// 3 - create event
 router.post("/", async (req, res) => {
     try {
-        // Support creating via body (preferred) or via query as before
-        const payload = Object.keys(req.body).length ? req.body : req.query;
-        const { changeDate, establishmentID, establishmentName, address, zipCode, county } = payload;
+        var toInserts = req.body;
+        var index = 0;
 
-        if (!changeDate || !establishmentID || !establishmentName || !address || !zipCode || !county) {
-            res.status(400).send({ error: "Missing required fields" });
-            return;
+        for(var event of toInserts){
+            const { changeDate, establishmentID, establishmentName, address, zipCode, county } = event;
+            
+            if (!changeDate || !establishmentID || !establishmentName || !address || !zipCode || !county) {
+                res.status(400).send({ error: "Missing required fields in event " + index });
+                return;
+            }
+            index++;
         }
-
-        const result = await db.collection('events').insertOne({
-            changeDate,
-            establishmentID,
-            establishmentName,
-            address,
-            zipCode,
-            county
-        });
+        
+        const result = await db.collection('events').insertMany(toInserts);
 
         res.status(201).send(result);
     } catch (error) {
