@@ -57,14 +57,12 @@ router.post("/", async (req, res) => {
 });
 
 // 6 - GET /users/:id  (include top 3 events of the user)
-//TODO : change "movies" to "events"
 router.get("/:id", async (req, res) => {
 	try {
 		const id = req.params.id;
 		console.log("Fetching user with id:", id);
 
 		const { events, ...user } = await db.collection("users").findOne({ _id: Number(id) });
-		// const { events, ...user } = await db.collection("users").findOne({ _id: Number(id) });
 		if (!user) {
 			res.status(404).send({ error: "User not found" });
 			return;
@@ -136,18 +134,16 @@ router.put("/:id", async (req, res) => {
 });
 
 // 15 - POST /users/:id/review/:event_id  -> add a new review (or update existing) to an event by a user
-// TODO : change "movie" to "event"
 router.post("/:id/review/:event_id", async (req, res) => {
 	try {
 		const { id, event_id } = req.params;
 
-		/* if (!isValidObjectId(event_id)) {
+		if (!isValidObjectId(event_id)) {
 		 	return res.status(400).send({ error: "Invalid event id" });
-		}*/
+		}
 
 		const userId = Number(id);
-		const eventId = Number(event_id);
-		//const eventId = new ObjectId(event_id);
+		const eventId = new ObjectId(event_id);
 
 		const { rating, ratedAt } = req.body;
 		const rate = Number(rating);
