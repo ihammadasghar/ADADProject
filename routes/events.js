@@ -1,37 +1,9 @@
 import express from "express";
 import db from "../db/config.js";
 import { ObjectId } from "mongodb";
+import { isValidObjectId, parsePageLimit, getEventStats } from "../utils.js";
 
 const router = express.Router();
-
-// Helpers
-function parsePageLimit(req) {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
-    const skip = (page - 1) * limit;
-    return { page, limit, skip };
-}
-
-function isValidObjectId(id) {
-    if (!id) return false;
-    try {
-        return ObjectId.isValid(id) && String(new ObjectId(id)) === id;
-    } catch (e) {
-        return false;
-    }
-}
-
-async function getEventStats(eventId) {
-    const pipeline = [
-        { $unwind: "$events" },
-        { $match: { "events.eventId": new ObjectId(eventId) } },
-        { $group: { _id: "$events.eventId", avg: { $avg: "$events.rating" }, count: { $sum: 1 } } }
-    ];
-
-    const result = await db.collection("users").aggregate(pipeline).toArray();
-    if (result.length === 0) return { avg: null, count: 0 };
-    return { avg: result[0].avg, count: result[0].count };
-}
 
 // 3 - create event
 router.post("/", async (req, res) => {
@@ -70,6 +42,26 @@ router.get("/", async (req, res) => {
 
         const total = await db.collection("events").countDocuments();
         res.send({ page, limit, total, items });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Internal Server Error" });
+    }
+});
+
+// 13 - GET /events/star  -> events with number of 5-star reviews (sorted desc)
+router.get("/star", async (req, res) => {
+    try {
+        const pipeline = [
+            { $unwind: "$events" },
+            { $match: { "events.rating": 5 } },
+            { $group: { _id: "$events.eventId", fiveStars: { $sum: 1 } } },
+            { $sort: { fiveStars: -1 } },
+            { $lookup: { from: "events", localField: "_id", foreignField: "_id", as: "event" } },
+            { $unwind: "$event" },
+            { $project: { event: 1, fiveStars: 1 } }
+        ];
+        const results = await db.collection("users").aggregate(pipeline).toArray();
+        res.send(results.map(r => ({ ...r.event, fiveStarsCount: r.fiveStars })));
     } catch (error) {
         console.error(error);
         res.status(500).send({ error: "Internal Server Error" });
@@ -198,26 +190,6 @@ router.get("/ratings/:order", async (req, res) => {
         ];
         const results = await db.collection("users").aggregate(pipeline).toArray();
         res.send(results.map(r => ({ ...r.event, reviewsCount: r.reviews })));
-    } catch (error) {
-        console.error(error);
-        res.status(500).send({ error: "Internal Server Error" });
-    }
-});
-
-// 13 - GET /events/star  -> events with number of 5-star reviews (sorted desc)
-router.get("/star", async (req, res) => {
-    try {
-        const pipeline = [
-            { $unwind: "$events" },
-            { $match: { "events.rating": 5 } },
-            { $group: { _id: "$events.eventId", fiveStars: { $sum: 1 } } },
-            { $sort: { fiveStars: -1 } },
-            { $lookup: { from: "events", localField: "_id", foreignField: "_id", as: "event" } },
-            { $unwind: "$event" },
-            { $project: { event: 1, fiveStars: 1 } }
-        ];
-        const results = await db.collection("users").aggregate(pipeline).toArray();
-        res.send(results.map(r => ({ ...r.event, fiveStarsCount: r.fiveStars })));
     } catch (error) {
         console.error(error);
         res.status(500).send({ error: "Internal Server Error" });

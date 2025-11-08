@@ -1,24 +1,9 @@
 import express from "express";
 import db from "../db/config.js";
 import { ObjectId } from "mongodb";
+import { isValidObjectId, parsePageLimit, isValidUserId } from "../utils.js";
 
 const router = express.Router();
-
-function parsePageLimit(req) {
-	const page = Math.max(1, parseInt(req.query.page) || 1);
-	const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
-	const skip = (page - 1) * limit;
-	return { page, limit, skip };
-}
-
-function isValidObjectId(id) {
-	if (!id) return false;
-	try {
-		return ObjectId.isValid(id) && String(new ObjectId(id)) === id;
-	} catch (e) {
-		return false;
-	}
-}
 
 // 2 - GET /users (pagination)
 router.get("/", async (req, res) => {
@@ -45,8 +30,15 @@ router.post("/", async (req, res) => {
 
 		const toInsert = Array.isArray(payload) ? payload : [payload];
 
-		// normalize eventIds if present
+		// Get the next available user ID
+		const maxUser = await db.collection("users").find().sort({_id: -1}).limit(1).toArray();
+		let nextId = maxUser.length > 0 ? maxUser[0]._id + 1 : 1;
+
+		// Process each user to insert
 		for (const u of toInsert) {
+			// Assign next available ID if not provided, or convert to integer if provided
+			u._id = u._id ? parseInt(u._id) : nextId++;
+			
 			if (Array.isArray(u.events)) {
 				u.events = u.events.map(e => ({
 					eventId: isValidObjectId(String(e.eventId)) ? new ObjectId(e.eventId) : e.eventId,
@@ -78,10 +70,8 @@ router.get("/:id", async (req, res) => {
 			return;
 		}
 
-		const sorted = events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.movieid);
-		// const sorted = events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e._id);
-		const bestRatedEvents = await db.collection("movies").find({ _id: { $in: sorted } }).toArray();
-		// const bestRatedEvents = await db.collection("events").find({ _id: { $in: sorted } }).toArray();
+		const sorted = events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.eventId);
+		const bestRatedEvents = await db.collection("events").find({ _id: { $in: sorted } }).toArray();
 	
 
 		res.status(200).send({ user, bestRatedEvents });
@@ -96,11 +86,11 @@ router.get("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
 	try {
 		const { id } = req.params;
-		if (!isValidObjectId(id)) {
+		if (!isValidUserId(id)) {
 			res.status(400).send({ error: "Invalid id" });
 			return;
 		}
-		const result = await db.collection("users").deleteOne({ _id: new ObjectId(id) });
+		const result = await db.collection("users").deleteOne({ _id: parseInt(id) });
 		if (result.deletedCount === 0) {
 			res.status(404).send({ error: "User not found" });
 			return;
@@ -116,27 +106,28 @@ router.delete("/:id", async (req, res) => {
 router.put("/:id", async (req, res) => {
 	try {
 		const { id } = req.params;
-		if (!isValidObjectId(id)) {
+		if (!isValidUserId(id)) {
 			res.status(400).send({ error: "Invalid id" });
 			return;
 		}
 
 		const body = req.body || {};
-		// if events provided, normalize eventId to ObjectId when valid
+		// if events array provided, normalize the data
 		if (Array.isArray(body.events)) {
 			body.events = body.events.map(e => ({
 				eventId: isValidObjectId(String(e.eventId)) ? new ObjectId(e.eventId) : e.eventId,
 				rating: e.rating,
-				ratedAt: e.ratedAt || new Date().toISOString()
+				timestamp: e.timestamp || new Date().getTime(),
+				date: e.date ? new Date(e.date) : new Date()
 			}));
 		}
 
-		const result = await db.collection("users").updateOne({ _id: new ObjectId(id) }, { $set: body });
+		const result = await db.collection("users").updateOne({ _id: parseInt(id) }, { $set: body });
 		if (result.matchedCount === 0) {
 			res.status(404).send({ error: "User not found" });
 			return;
 		}
-		const updated = await db.collection("users").findOne({ _id: new ObjectId(id) });
+		const updated = await db.collection("users").findOne({ _id: parseInt(id) });
 		res.send(updated);
 	} catch (error) {
 		console.error(error);
@@ -166,24 +157,20 @@ router.post("/:id/review/:event_id", async (req, res) => {
 
 		const ratedAtValue = ratedAt ? new Date(ratedAt): new Date();
 		const ratedAtRawValue = ratedAt ? new Date(ratedAt).getTime() : new Date().getTime();
-		const eventExists = await db.collection("movies").find({ _id: eventId });
-		//const eventExists = await db.collection("events").findOne({ _id: eventId });
+		const eventExists = await db.collection("events").findOne({ _id: eventId });
 		if (!eventExists) {
 			return res.status(404).send({ error: "Event not found" });
 		}
 
 		var result = await db.collection("users").updateOne(
-			{ _id: userId, "movies.movieid": eventId },
-			{ $set: { "movies.$.rating": rate, "movies.$.date": ratedAtValue, "movies.$.timestamp": ratedAtRawValue } }
-			/*{ _id: userId, "events.eventId": eventId },
-			{ $set: { "events.$.rating": rate, "events.$.date": ratedAtValue, "events.$.timestamp": ratedAtRawValue } }*/
+			{ _id: userId, "events.eventId": eventId },
+			{ $set: { "events.$.rating": rate, "events.$.date": ratedAtValue, "events.$.timestamp": ratedAtRawValue } }
 		);
 
 		if (result.matchedCount === 0) {
 			result = await db.collection("users").updateOne(
 				{ _id: userId },
-				{ $push: { movies: { movieid: eventId, rating: rate, timestamp: ratedAtRawValue, date: ratedAtValue } } }
-				/*{ $push: { events: { eventId: eventId, rating: rate, timestamp: ratedAtRawValue, date: ratedAtValue } } }*/
+				{ $push: { events: { eventId: eventId, rating: rate, timestamp: ratedAtRawValue, date: ratedAtValue } } }
 			);
 			if (result.matchedCount === 0) {
 				return res.status(404).send({ error: "User not found" });
