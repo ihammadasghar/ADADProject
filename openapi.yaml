@@ -280,18 +280,20 @@ paths:
           $ref: '#/components/responses/NotFound'
   /users/{id}/review/{event_id}:
     post:
-      summary: Add or update a review by a user for an event
+      summary: Add or update an event rating by a user
       parameters:
         - in: path
           name: id
           required: true
           schema:
-            type: string
+            type: integer
+          description: User ID
         - in: path
           name: event_id
           required: true
           schema:
-            type: string
+            type: integer
+          description: Event ID
       requestBody:
         required: true
         content:
@@ -301,11 +303,12 @@ paths:
               properties:
                 rating:
                   type: integer
-                  minimum: 1
+                  minimum: 0
                   maximum: 5
                 ratedAt:
                   type: string
                   format: date-time
+                  description: Optional. Defaults to current time if not provided
               required:
                 - rating
       responses:
@@ -414,15 +417,23 @@ components:
       properties:
         eventId:
           type: string
+          description: ObjectId of the event
         rating:
           type: integer
-        ratedAt:
+          minimum: 0
+          maximum: 5
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds
+        date:
           type: string
           format: date-time
       example:
         eventId: "650a3c..."
         rating: 5
-        ratedAt: "2025-11-05T12:00:00.000Z"
+        timestamp: 1699401600000
+        date: "2025-11-08T12:00:00.000Z"
     EventWithStats:
       allOf:
         - $ref: '#/components/schemas/Event'
@@ -460,7 +471,7 @@ components:
       type: object
       properties:
         _id:
-          type: string
+          type: integer
         name:
           type: string
         gender:
@@ -475,7 +486,7 @@ components:
           items:
             $ref: '#/components/schemas/EventRating'
       example:
-        _id: "650b4d..."
+        _id: 1234
         name: "Alice"
         gender: "F"
         age: 30
@@ -505,6 +516,7 @@ components:
           type: string
         gender:
           type: string
+          enum: [M, F]
         age:
           type: integer
         occupation:
@@ -514,24 +526,27 @@ components:
           items:
             $ref: '#/components/schemas/EventRating'
     UserWithTop3:
-      allOf:
-        - $ref: '#/components/schemas/User'
-        - type: object
-          properties:
-            top3:
-              type: array
-              items:
-                type: object
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        bestRatedEvents:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Event'
+              - type: object
                 properties:
-                  eventId:
-                    type: string
                   rating:
                     type: integer
-                  ratedAt:
+                    minimum: 0
+                    maximum: 5
+                  timestamp:
+                    type: integer
+                    format: int64
+                  date:
                     type: string
                     format: date-time
-                  event:
-                    $ref: '#/components/schemas/Event'
     PaginatedEvents:
       type: object
       properties:
