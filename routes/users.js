@@ -56,6 +56,52 @@ router.post("/", async (req, res) => {
 	}
 });
 
+// Endpoint 18 - GET /users/top
+// Purpose: Retrieve the top 5 most active users based on the number of reviews they've submitted
+
+router.get("/top", async (req, res) => {
+	try {
+		const users = await db.collection("users").find({}).toArray();
+		if (users.length === 0) {
+			res.status(404).send({ error: "No users found" });
+			return;
+		}
+		const usersWithCount = users.map(u => ({
+			...u,
+			reviewCount: Array.isArray(u.events) ? u.events.length : 0
+		}));
+		const topUsers = usersWithCount.sort((a, b) => b.reviewCount - a.reviewCount).slice(0, 5);
+		res.status(200).send({ message: "Top 5 most active users", totalUsers: users.length, topUsers });
+	} catch (error) {
+		console.error("Error fetching top users:", error);
+		res.status(500).send({ error: "Internal Server Error" });
+	}
+});
+
+// Endpoint 19 - GET /users/active/:year
+// Purpose: Retrieve all users who submitted at least one review during the specified year
+router.get("/active/:year", async (req, res) => {
+	try {
+		const year = parseInt(req.params.year);
+		if (isNaN(year)) {
+			res.status(400).send({ error: "Invalid year format" });
+			return;
+		}
+		const users = await db.collection('users').find({}).toArray();
+		const activeUsers = users.filter(user => {
+			if (!Array.isArray(user.events)) return false;
+			return user.events.some(event => {
+				const date = new Date(event.ratedAt);
+				return !isNaN(date) && date.getFullYear() === year;
+			});
+		});
+		res.status(200).send({ year, activeUserCount: activeUsers.length, activeUsers });
+	} catch (error) {
+		console.error("Error fetching active users:", error);
+		res.status(500).send({ error: "Internal Server Error" });
+	}
+});
+
 // 6 - GET /users/:id  (include top 3 events of the user)
 router.get("/:id", async (req, res) => {
 	try {
@@ -142,8 +188,9 @@ router.post("/:id/review/:event_id", async (req, res) => {
 		 	return res.status(400).send({ error: "Invalid event id" });
 		}
 
-		const userId = Number(id);
-		const eventId = new ObjectId(event_id);
+	const userId = Number(id);
+	// allow event_id as an ObjectId string or a number
+	const eventId = isValidObjectId(String(event_id)) ? new ObjectId(event_id) : Number(event_id);
 
 		const { rating, ratedAt } = req.body;
 		const rate = Number(rating);
@@ -153,7 +200,7 @@ router.post("/:id/review/:event_id", async (req, res) => {
 
 		const ratedAtValue = ratedAt ? new Date(ratedAt): new Date();
 		const ratedAtRawValue = ratedAt ? new Date(ratedAt).getTime() : new Date().getTime();
-		const eventExists = await db.collection("events").findOne({ _id: eventId });
+	const eventExists = await db.collection("events").findOne({ _id: eventId });
 		if (!eventExists) {
 			return res.status(404).send({ error: "Event not found" });
 		}
