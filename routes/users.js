@@ -232,29 +232,21 @@ router.post("/:id/review/:event_id", async (req, res) => {
 
 router.get("/top", async (req, res) => {
   try {
-    // Step 1: Fetch all users from the database
     const users = await db.collection("users").find({}).toArray();
 
-    // Step 2: If no users are found, return a 404 error
     if (users.length === 0) {
       res.status(404).send({ error: "No users found" });
       return;
     }
 
-    // Step 3: For each user, calculate how many reviews they have
-    // This is done by counting the number of items in their 'events' array
     const usersWithCount = users.map(u => ({
       ...u,
       reviewCount: Array.isArray(u.events) ? u.events.length : 0
     }));
 
-    // Step 4: Sort users by review count in descending order
-    // Then take the top 5 users
     const topUsers = usersWithCount
       .sort((a, b) => b.reviewCount - a.reviewCount)
       .slice(0, 5);
-
-    // Step 5: Return the top users along with metadata
     res.status(200).send({
       message: "Top 5 most active users",
       totalUsers: users.length,
@@ -272,30 +264,23 @@ router.get("/top", async (req, res) => {
 
 router.get("/active/:year", async (req, res) => {
   try {
-    // Step 1: Parse the year from the URL parameter
     const year = parseInt(req.params.year);
 
-    // Step 2: Validate the year format
     if (isNaN(year)) {
       res.status(400).send({ error: "Invalid year format" });
       return;
     }
 
-    // Step 3: Fetch all users from the database
     const users = await db.collection('users').find({}).toArray();
 
-    // Step 4: Filter users who have at least one review in the specified year
     const activeUsers = users.filter(user => {
       if (!Array.isArray(user.events)) return false;
 
-      // Check if any review's ratedAt date matches the target year
       return user.events.some(event => {
         const date = new Date(event.ratedAt);
         return !isNaN(date) && date.getFullYear() === year;
       });
     });
-
-    // Step 5: Return the filtered users along with metadata
     res.status(200).send({
       year,
       activeUserCount: activeUsers.length,
