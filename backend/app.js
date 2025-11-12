@@ -1,10 +1,12 @@
 import express from 'express'
 import events from "./routes/events.js";
 import users from "./routes/users.js";
+import cors from 'cors';
 
 const app = express()
 const port = 3000
 app.use(express.json());
+app.use(cors());
 
 // Load the /movies routes
 app.use("/events", events);
