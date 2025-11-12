@@ -104,6 +104,50 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/EventWithFiveStars'
+
+  /events/trending:
+    get:
+      summary: Trending events (recent 30 days)
+      description: List events that have received reviews in the last 30 days, sorted by number of recent reviews
+      responses:
+        '200':
+          description: Trending events with recent review counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventWithReviewCount'
+
+  /events/county/{county}:
+    get:
+      summary: Events in a county with stats
+      parameters:
+        - in: path
+          name: county
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Events in county with averageScore and reviewsCount
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  county:
+                    type: string
+                  totalEvents:
+                    type: integer
+                  countyAverage:
+                    type: number
+                    nullable: true
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventWithStats'
+
   /events/{idOrYear}:
     get:
       summary: Get event by id or list events reviewed in a year
@@ -225,7 +269,7 @@ paths:
           name: id
           required: true
           schema:
-            type: string
+            type: integer
       responses:
         '200':
           description: User with top3 events
@@ -242,7 +286,7 @@ paths:
           name: id
           required: true
           schema:
-            type: string
+            type: integer
       requestBody:
         required: true
         content:
@@ -265,7 +309,7 @@ paths:
           name: id
           required: true
           schema:
-            type: string
+            type: integer
       responses:
         '200':
           description: Deleted flag
@@ -292,8 +336,8 @@ paths:
           name: event_id
           required: true
           schema:
-            type: integer
-          description: Event ID
+            type: string
+          description: Event ID (ObjectId string)
       requestBody:
         required: true
         content:
@@ -334,6 +378,53 @@ paths:
                     type: boolean
                   user:
                     $ref: '#/components/schemas/User'
+  /users/top:
+    get:
+      summary: Top active users
+      description: Retrieve the top 5 most active users by number of reviews
+      responses:
+        '200':
+          description: Top users list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  totalUsers:
+                    type: integer
+                  topUsers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+
+  /users/active/{year}:
+    get:
+      summary: Active users in a year
+      parameters:
+        - in: path
+          name: year
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Users who submitted reviews in the given year
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  year:
+                    type: integer
+                  activeUserCount:
+                    type: integer
+                  activeUsers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+
 components:
   responses:
     BadRequest:

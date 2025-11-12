@@ -4,6 +4,64 @@ import { ObjectId } from "mongodb";
 import { isValidObjectId, parsePageLimit, getEventStats } from "../utils.js";
 
 const router = express.Router();
+// Endpoint 17 - GET /events/trending
+// Purpose: List events that have received reviews in the last 30 days, sorted by number of recent reviews
+
+router.get("/trending", async (req, res) => {
+  try {
+    const today = new Date();
+    const pastMonth = new Date(today);
+    pastMonth.setDate(today.getDate() - 30);
+
+    const pipeline = [
+      { $unwind: "$events" },
+
+      { $match: { "events.ratedAt": { $gte: pastMonth } } },
+
+      {
+        $group: {
+          _id: "$events.eventId",
+          recentReviewCount: { $sum: 1 }
+        }
+      },
+
+      { $sort: { recentReviewCount: -1 } },
+
+      {
+        $lookup: {
+          from: "events",
+          localField: "_id",
+          foreignField: "_id",
+          as: "event"
+        }
+      },
+
+      { $unwind: "$event" },
+
+      {
+        $project: {
+          _id: 0,
+          event: "$event",
+          recentReviewCount: 1
+        }
+      }
+    ];
+
+    const results = await db.collection("users").aggregate(pipeline).toArray();
+
+    const trending = results.map(r => ({
+      ...r.event,
+      recentReviewCount: r.recentReviewCount
+    }));
+
+    res.status(200).send(trending);
+
+  } catch (error) {
+    console.error("Error fetching trending events:", error);
+    res.status(500).send({ error: "Internal Server Error" });
+  }
+});
+
 
 // 3 - create event
 router.post("/", async (req, res) => {
@@ -88,10 +146,8 @@ router.get("/:idOrYear", async (req, res) => {
             return;
         }
 
-        // If year (simple check)
         if (/^\d{4}$/.test(p)) {
             const year = parseInt(p);
-            // find distinct eventIds that have reviews in the year
             const pipeline = [
                 { $unwind: "$events" },
                 { $addFields: { year: { $year: { $toDate: "$events.ratedAt" } } } },
@@ -201,37 +257,30 @@ router.get("/ratings/:order", async (req, res) => {
 
 router.get("/county/:county", async (req, res) => {
   try {
-    // Extract and sanitize the county name from the URL parameter
     const county = req.params.county?.trim();
     if (!county) return res.status(400).send({ error: "Missing county name" });
 
-    // Find all events in the specified county (case-insensitive match)
     const events = await db.collection("events")
       .find({ county: { $regex: new RegExp(`^${county}$`, "i") } })
       .toArray();
 
-    // If no events are found, return a 404 error
     if (events.length === 0) {
       return res.status(404).send({ error: `No events found in county '${county}'` });
     }
 
-    // Extract the IDs of the matched events
     const eventIds = events.map(e => e._id);
 
-    // Aggregate user reviews for these events to calculate average rating and count
     const stats = await db.collection("users").aggregate([
-      { $unwind: "$events" }, // Flatten the events array in each user document
-      { $match: { "events.eventId": { $in: eventIds } } }, // Filter reviews for matched events
+      { $unwind: "$events" },
+      { $match: { "events.eventId": { $in: eventIds } } },
       {
         $group: {
-          _id: "$events.eventId", // Group by event ID
-          avgRating: { $avg: "$events.rating" }, // Calculate average rating
-          count: { $sum: 1 } // Count total reviews
+          _id: "$events.eventId",
+          avgRating: { $avg: "$events.rating" },
+          count: { $sum: 1 }
         }
       }
     ]).toArray();
-
-    // Merge the stats into the original event objects
     const eventsWithStats = events.map(e => {
       const s = stats.find(x => String(x._id) === String(e._id));
       return {
@@ -260,78 +309,6 @@ router.get("/county/:county", async (req, res) => {
   } catch (error) {
     // Handle unexpected errors
     console.error("Error fetching county events:", error);
-    res.status(500).send({ error: "Internal Server Error" });
-  }
-});
-// Endpoint 17 - GET /events/trending
-// Purpose: List events that have received reviews in the last 30 days, sorted by number of recent reviews
-
-router.get("/trending", async (req, res) => {
-  try {
-    // Get today's date
-    const today = new Date();
-
-    // Calculate the date 30 days ago
-    const pastMonth = new Date(today);
-    pastMonth.setDate(today.getDate() - 30);
-
-    // MongoDB aggregation pipeline to find trending events
-    const pipeline = [
-      // Step 1: Unwind the 'events' array from each user document
-      { $unwind: "$events" },
-
-      // Step 2: Filter reviews that were created in the last 30 days
-      { $match: { "events.ratedAt": { $gte: pastMonth } } },
-
-      // Step 3: Group reviews by eventId and count how many recent reviews each event received
-      {
-        $group: {
-          _id: "$events.eventId",
-          recentReviewCount: { $sum: 1 }
-        }
-      },
-
-      // Step 4: Sort events by number of recent reviews in descending order
-      { $sort: { recentReviewCount: -1 } },
-
-      // Step 5: Join with the 'events' collection to get full event details
-      {
-        $lookup: {
-          from: "events",               // Target collection
-          localField: "_id",            // eventId from reviews
-          foreignField: "_id",          // _id in events collection
-          as: "event"                   // Output field
-        }
-      },
-
-      // Step 6: Flatten the joined event array
-      { $unwind: "$event" },
-
-      // Step 7: Format the final output
-      {
-        $project: {
-          _id: 0,                       // Remove internal _id
-          event: "$event",             // Include full event details
-          recentReviewCount: 1         // Include review count
-        }
-      }
-    ];
-
-    // Execute the aggregation on the 'users' collection
-    const results = await db.collection("users").aggregate(pipeline).toArray();
-
-    // Merge the event details and review count into a single object
-    const trending = results.map(r => ({
-      ...r.event,
-      recentReviewCount: r.recentReviewCount
-    }));
-
-    // Return the trending events
-    res.status(200).send(trending);
-
-  } catch (error) {
-    // Handle unexpected errors
-    console.error("Error fetching trending events:", error);
     res.status(500).send({ error: "Internal Server Error" });
   }
 });
