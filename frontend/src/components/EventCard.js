@@ -10,6 +10,7 @@ function EventCard(props) {
           {/* id: {props._id} */}
         </Card.Text>
         <Button href={"/events/" + props._id} variant="outline-primary">Open Event</Button>
+        
       </Card.Body>
     </Card>
   );
