@@ -2,19 +2,21 @@ import {useState, useEffect} from "react";
 import CardGroup from 'react-bootstrap/CardGroup';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
+import Button from 'react-bootstrap/Button';
 
 import EventCard from "../components/EventCard";
 import EditEventModal from "../components/EditEventModal";
 
 export default function App() {
   let [events, setEvents] = useState([]);
+  let [pagination, setPagination] = useState([]);
 
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showEdit, setShowEdit] = useState(false);
 
-  const getEvents = async () => {
+  const getEvents = async (page) => {
     try {
-      const response = await fetch('http://localhost:3000/events', {
+      const response = await fetch('http://localhost:3000/events/?page=' + page, {
         method: 'GET',
         headers: {
         'Content-Type': 'application/json'
@@ -23,6 +25,11 @@ export default function App() {
       
       const data = await response.json();
       setEvents(data.items);
+      setPagination({
+        page: data.page,
+        limit: data.limit,
+        total: data.total,
+      });
 
     } catch (error) {
       console.error('Error:', error);
@@ -30,7 +37,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    getEvents();
+    getEvents(1);
   }, []);
 
   const openEdit = (event) => {
@@ -47,6 +54,7 @@ export default function App() {
 
   return (
     <div className="container pt-5 pb-5">
+      <div>
         <h2>Events</h2>
         <CardGroup>
             <Row xs={1} md={2} className="d-flex justify-content-around">
@@ -69,6 +77,11 @@ export default function App() {
           onClose={() => { setShowEdit(false); setSelectedEvent(null); }}
           onSaved={handleSaved}
         />
+      </div>
+      <div>
+        <Button onClick={() => getEvents(pagination.page - 1)}>Previous</Button>
+        <Button onClick={() => getEvents(pagination.page + 1)}>Next</Button>
+      </div>
     </div>
   )
 }
