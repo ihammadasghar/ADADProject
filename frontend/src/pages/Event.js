@@ -1,6 +1,5 @@
 import React, {useState, useEffect} from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { openContractCall } from '@stacks/connect';
 import {
   bufferCV,
 } from '@stacks/transactions';
@@ -17,7 +16,6 @@ export default function App() {
 
   useEffect(() => {
     let id = params._id;
-    console.log(id);
     //getEvent(params._id);
 
   }, []);
