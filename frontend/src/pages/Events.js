@@ -40,8 +40,8 @@ export default function App() {
   }
 
   const handleSaved = (updatedEvent) => {
-    // update local list with returned event
-    setEvents(prev => prev.map(e => e._id === updatedEvent._id ? updatedEvent : e));
+    // reload events from the server
+    getEvents();
     setShowEdit(false);
     setSelectedEvent(null);
   }
