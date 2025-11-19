@@ -1,8 +1,7 @@
-import React, {useState, useEffect} from "react";
+import {useState, useEffect} from "react";
 import CardGroup from 'react-bootstrap/CardGroup';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
-import Button from 'react-bootstrap/Button';
 
 import EventCard from "../components/EventCard";
 import EditEventModal from "../components/EditEventModal";
@@ -56,11 +55,9 @@ export default function App() {
                 return (
                     <Col key={event._id} className="mb-3">
                       <EventCard 
-                          {...event}
+                          event={event}
+                          openEdit={openEdit}
                       />
-                      <div className="d-flex justify-content-end mt-2">
-                        <Button variant="outline-primary" size="sm" onClick={() => openEdit(event)}>Edit</Button>
-                      </div>
                     </Col>
                 );
             })}
