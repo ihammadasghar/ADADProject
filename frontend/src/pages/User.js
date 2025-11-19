@@ -3,12 +3,17 @@ import { useParams } from "react-router-dom";
 import { Container, Row, Col, Card, Badge, Spinner, Alert } from "react-bootstrap";
 import axios from "axios";
 import "../styles/UserDetail.css";
+// Added to allow redirect after deleting the user
+import { useNavigate } from "react-router-dom"; 
 
 export default function User() {
   const params = useParams();
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Added to programmatically navigate after deleting the user
+  const navigate = useNavigate();
+
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -78,11 +83,32 @@ export default function User() {
     });
   };
 
+  const deleteUser = async () => {
+  // Confirmation popup before deleting
+  if (!window.confirm("Are you sure you want to delete this user?")) return;
+
+  try {
+    // Sends DELETE request to backend with the user id
+    await axios.delete(`http://localhost:3000/users/${params._id}`);
+    alert("User deleted successfully!");
+    navigate("/users");
+  } catch (error) {
+    alert("Failed to delete user: " + (error.message || "Unknown error"));
+  }
+};
+
   return (
     <Container className="pt-5 pb-5">
       <Row className="mb-4">
         <Col>
           <h1 className="mb-0">{user.name}</h1>
+          <button
+            className="btn btn-danger mt-3"
+            // Added to trigger user deletion
+            onClick={deleteUser}
+          >
+            Delete User
+         </button>
         </Col>
       </Row>
 
