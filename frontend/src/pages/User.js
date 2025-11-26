@@ -85,7 +85,6 @@ export default function User() {
   if (!window.confirm("Are you sure you want to delete this user?")) return;
 
   try {
-    // Sends DELETE request to backend with the user id
     await axios.delete(`http://localhost:3000/users/${params._id}`);
     alert("User deleted successfully!");
     navigate("/users");
