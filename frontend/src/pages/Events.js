@@ -22,8 +22,10 @@ export default function App() {
         'Content-Type': 'application/json'
         },
       });
-      
       const data = await response.json();
+      if(data.items.length === 0){
+        return;
+      }
       setEvents(data.items);
       setPagination({
         page: data.page,
