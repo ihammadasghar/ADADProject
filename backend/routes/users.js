@@ -106,16 +106,22 @@ router.get("/active/:year", async (req, res) => {
 router.get("/:id", async (req, res) => {
 	try {
 		const id = req.params.id;
-		console.log("Fetching user with id:", id);
 
-		const { events, ...user } = await db.collection("users").findOne({ _id: Number(id) });
+		const user = await db.collection("users").findOne({ _id: Number(id) });
 		if (!user) {
 			res.status(404).send({ error: "User not found" });
 			return;
 		}
-
-		const sorted = events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.eventId);
-		const bestRatedEvents = await db.collection("events").find({ _id: { $in: sorted } }).toArray();
+		
+		let bestRatedEvents;
+		if(user.events){
+			const sorted = user.events.sort((a, b) =>  b.rating - a.rating).slice(0, 3).map(e => e.eventId);
+			bestRatedEvents = await db.collection("events").find({ _id: { $in: sorted } }).toArray();
+		}
+		else{
+			bestRatedEvents = [];
+		}
+		
 	
 
 		res.status(200).send({ user, bestRatedEvents });
