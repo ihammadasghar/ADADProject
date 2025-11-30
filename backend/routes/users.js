@@ -30,19 +30,90 @@ router.post("/", async (req, res) => {
 
 		const toInsert = Array.isArray(payload) ? payload : [payload];
 
+		// Basic per-user validation and collect referenced event ids
+		const allEventObjectIds = [];
+		for (let i = 0; i < toInsert.length; i++) {
+			const u = toInsert[i];
+			// Required fields: name, gender, age, occupation
+			if (!u.name || !u.gender || u.age === undefined || u.age === null || !u.occupation) {
+				res.status(400).send({ error: `Missing required user fields in item ${i}. Required: name, gender, age, occupation` });
+				return;
+			}
+
+			// Validate gender
+			if (!(u.gender === 'M' || u.gender === 'F')) {
+				res.status(400).send({ error: `Invalid gender for user at index ${i}. Allowed: 'M' or 'F'` });
+				return;
+			}
+
+			// Validate age
+			const ageNum = Number(u.age);
+			if (!Number.isFinite(ageNum) || !Number.isInteger(ageNum) || ageNum < 0 || ageNum > 150) {
+				res.status(400).send({ error: `Invalid age for user at index ${i}. Must be an integer between 0 and 150` });
+				return;
+			}
+
+			// Validate events array shape and collect eventIds to verify existence later
+			if (Array.isArray(u.events)) {
+				for (let j = 0; j < u.events.length; j++) {
+					const e = u.events[j];
+					if (!e || (e.eventId === undefined || e.eventId === null)) {
+						res.status(400).send({ error: `Missing eventId for user index ${i} event index ${j}` });
+						return;
+					}
+
+					// rating must be finite number between 0 and 5
+					const rating = Number(e.rating);
+					if (!Number.isFinite(rating) || rating < 0 || rating > 5) {
+						res.status(400).send({ error: `Invalid rating for user index ${i} event index ${j}. Must be number between 0 and 5` });
+						return;
+					}
+
+					// eventId must be a valid ObjectId (events collection uses ObjectId _id)
+					if (!isValidObjectId(String(e.eventId))) {
+						res.status(400).send({ error: `Invalid eventId format for user index ${i} event index ${j}: ${String(e.eventId)}` });
+						return;
+					}
+
+					allEventObjectIds.push(new ObjectId(String(e.eventId)));
+				}
+			}
+		}
+
+		// Verify that all referenced events actually exist in the events collection
+		if (allEventObjectIds.length > 0) {
+			// dedupe
+			const uniqueIds = Array.from(new Set(allEventObjectIds.map(id => String(id)))).map(s => new ObjectId(s));
+			const existing = await db.collection('events').find({ _id: { $in: uniqueIds } }).project({ _id: 1 }).toArray();
+			const existingSet = new Set(existing.map(e => String(e._id)));
+			for (let i = 0; i < toInsert.length; i++) {
+				const u = toInsert[i];
+				if (Array.isArray(u.events)) {
+					for (let j = 0; j < u.events.length; j++) {
+						const e = u.events[j];
+						const oidStr = String(new ObjectId(String(e.eventId)));
+						if (!existingSet.has(oidStr)) {
+							res.status(400).send({ error: `Referenced event not found for user index ${i} event index ${j}: ${String(e.eventId)}` });
+							return;
+						}
+					}
+				}
+			}
+		}
+
 		// Get the next available user ID
 		const maxUser = await db.collection("users").find().sort({_id: -1}).limit(1).toArray();
 		let nextId = maxUser.length > 0 ? maxUser[0]._id + 1 : 1;
 
-		// Process each user to insert
-		for (const u of toInsert) {
+		// Normalize events and assign _id
+		for (let u of toInsert) {
 			// Assign next available ID if not provided, or convert to integer if provided
 			u._id = u._id ? parseInt(u._id) : nextId++;
 			
 			if (Array.isArray(u.events)) {
 				u.events = u.events.map(e => ({
-					eventId: isValidObjectId(String(e.eventId)) ? new ObjectId(e.eventId) : e.eventId,
-					rating: e.rating,
+					eventId: new ObjectId(String(e.eventId)),
+					rating: Number(e.rating),
 					ratedAt: e.ratedAt || new Date().toISOString()
 				}));
 			}
@@ -162,13 +233,67 @@ router.put("/:id", async (req, res) => {
 		}
 
 		const body = req.body || {};
-		// if events array provided, normalize the data
+
+		// Validate fields if they are provided (partial updates allowed)
+		if (body.gender !== undefined) {
+			if (!(body.gender === 'M' || body.gender === 'F')) {
+				res.status(400).send({ error: 'Invalid gender. Allowed: "M" or "F"' });
+				return;
+			}
+		}
+
+		if (body.age !== undefined) {
+			const ageNum = Number(body.age);
+			if (!Number.isFinite(ageNum) || !Number.isInteger(ageNum) || ageNum < 0 || ageNum > 150) {
+				res.status(400).send({ error: 'Invalid age. Must be an integer between 0 and 150' });
+				return;
+			}
+			body.age = ageNum;
+		}
+
+		// If events provided, validate each entry and ensure referenced events exist
 		if (Array.isArray(body.events)) {
+			const allEventObjectIds = [];
+			for (let j = 0; j < body.events.length; j++) {
+				const e = body.events[j];
+				if (!e || (e.eventId === undefined || e.eventId === null)) {
+					res.status(400).send({ error: `Missing eventId for events[${j}]` });
+					return;
+				}
+
+				const rating = Number(e.rating);
+				if (!Number.isFinite(rating) || rating < 0 || rating > 5) {
+					res.status(400).send({ error: `Invalid rating for events[${j}]. Must be number between 0 and 5` });
+					return;
+				}
+
+				if (!isValidObjectId(String(e.eventId))) {
+					res.status(400).send({ error: `Invalid eventId format for events[${j}]: ${String(e.eventId)}` });
+					return;
+				}
+
+				allEventObjectIds.push(new ObjectId(String(e.eventId)));
+			}
+
+			// Verify referenced events exist
+			const uniqueIds = Array.from(new Set(allEventObjectIds.map(id => String(id)))).map(s => new ObjectId(s));
+			const existing = await db.collection('events').find({ _id: { $in: uniqueIds } }).project({ _id: 1 }).toArray();
+			const existingSet = new Set(existing.map(x => String(x._id)));
+			for (let j = 0; j < body.events.length; j++) {
+				const e = body.events[j];
+				const oidStr = String(new ObjectId(String(e.eventId)));
+				if (!existingSet.has(oidStr)) {
+					res.status(400).send({ error: `Referenced event not found: events[${j}] -> ${String(e.eventId)}` });
+					return;
+				}
+			}
+
+			// Normalize event entries for storage
 			body.events = body.events.map(e => ({
-				eventId: isValidObjectId(String(e.eventId)) ? new ObjectId(e.eventId) : e.eventId,
-				rating: e.rating,
-				timestamp: e.timestamp || new Date().getTime(),
-				date: e.date ? new Date(e.date) : new Date()
+				eventId: new ObjectId(String(e.eventId)),
+				rating: Number(e.rating),
+				timestamp: e.timestamp || Date.now(),
+				ratedAt: e.ratedAt || e.date || new Date().toISOString()
 			}));
 		}
 
